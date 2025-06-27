@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import "./App.css";
+import { neighborhoods, createGeoJSONFeature } from "./neighborhoods";
 
 mapboxgl.accessToken = 'pk.eyJ1IjoiYWt1em1hMTgiLCJhIjoiY204aHZhMXF3MDZjNjJycG1pdHJrZ2gyZyJ9.Py9M4AmZEGdxMJUda8h0jg'; // Replace with your token
 
@@ -9,138 +10,153 @@ function App() {
   const mapContainer = useRef(null);
   const map = useRef(null);
   const [selected, setSelected] = useState(false);
+  const [selectedNeighborhood, setSelectedNeighborhood] = useState(null);
 
   useEffect(() => {
     // Default center in case geolocation fails
     const defaultCenter = [-74.5, 40];
 
-    // Park Slope boundary GeoJSON
-    const parkSlopeBoundary = {
-      "type": "Feature",
-      "geometry": {
-        "type": "Polygon",
-        "coordinates": [[
-          [-73.97806687548409, 40.68488419266882],
-          [-73.98389395483494, 40.67614930054148],
-          [-73.99288748480325, 40.66539216409436],
-          [-73.98935216289065, 40.66311225566585],
-          [-73.98657756979759, 40.65963069951647],
-          [-73.98311359847479, 40.65740854131997],
-          [-73.97959847321171, 40.66130629205787],
-          [-73.97423027092445, 40.667796716952864],
-          [-73.97131679315545, 40.671264059853],
-          [-73.96993980243529, 40.673413233034694],
-          [-73.9710764599761, 40.675272513337006],
-          [-73.97806687548409, 40.68488419266882]
-        ]]
-      }
-    };
-
     // Initialize map with default center
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
-      style: "mapbox://styles/akuzma18/clynrcx48001u01qn4pkdhso4",
+      style: "mapbox://styles/mapbox/light-v10",
       center: defaultCenter,
       zoom: 13,
     });
 
-    // Add Park Slope boundary layer when map loads
+    // Add all neighborhoods when map loads
     map.current.on('load', () => {
-      // Only add the source if it doesn't already exist
-      if (!map.current.getSource('park-slope')) {
-        map.current.addSource('park-slope', {
-          type: 'geojson',
-          data: parkSlopeBoundary
-        });
-      }
+      // Loop through all neighborhoods
+      Object.keys(neighborhoods).forEach((neighborhoodKey) => {
+        const neighborhood = neighborhoods[neighborhoodKey];
+        const neighborhoodBoundary = createGeoJSONFeature(neighborhood.coordinates);
+        
+        // Create unique IDs for each neighborhood
+        const sourceId = `${neighborhoodKey}-source`;
+        const boundaryLayerId = `${neighborhoodKey}-boundary`;
+        const fillLayerId = `${neighborhoodKey}-fill`;
+        const labelSourceId = `${neighborhoodKey}-label-source`;
+        const labelLayerId = `${neighborhoodKey}-label-layer`;
 
-      // Only add the boundary layer if it doesn't already exist
-      if (!map.current.getLayer('park-slope-boundary')) {
-        map.current.addLayer({
-          id: 'park-slope-boundary',
-          type: 'line',
-          source: 'park-slope',
-          paint: {
-            'line-color': '#151515',
-            'line-opacity': 0.2,
-            'line-width': 3
-          }
-        });
-      }
+        // Add source if it doesn't exist
+        if (!map.current.getSource(sourceId)) {
+          map.current.addSource(sourceId, {
+            type: 'geojson',
+            data: neighborhoodBoundary
+          });
+        }
 
-      // Only add the fill layer if it doesn't already exist
-      if (!map.current.getLayer('park-slope-fill')) {
-        map.current.addLayer({
-          id: 'park-slope-fill',
-          type: 'fill',
-          source: 'park-slope',
-          paint: {
-            'fill-color': '#4CA09C',
-            'fill-opacity': 0.22
-          }
-        });
-      }
+        // Add boundary layer if it doesn't exist
+        if (!map.current.getLayer(boundaryLayerId)) {
+          map.current.addLayer({
+            id: boundaryLayerId,
+            type: 'line',
+            source: sourceId,
+            paint: {
+              'line-color': '#151515',
+              'line-width': 2,
+              'line-opacity': 1
+            }
+          });
+        }
 
-      // Calculate centroid (approximate)
-      const centroid = [-73.9817, 40.6707]; // Approximate center of your polygon
+        // Determine fill color and opacity based on label
+        let fillColor = '#4CA09C';
+        let fillOpacity = 0.22;
+        let percent = 0;
+        if (neighborhood.label && neighborhood.label.endsWith('%')) {
+          percent = parseInt(neighborhood.label.replace('%', ''), 10);
+        }
+        if (percent === 0) {
+          fillColor = '#777777';
+          fillOpacity = 0.10;
+        } else if (percent >= 1 && percent <= 30) {
+          fillColor = '#4CA09C';
+          fillOpacity = 0.06;
+        } else if (percent > 30 && percent <= 70) {
+          fillColor = '#4CA09C';
+          fillOpacity = 0.14;
+        } else if (percent > 70 && percent < 100) {
+          fillColor = '#4CA09C';
+          fillOpacity = 0.22;
+        } else if (percent === 100) {
+          fillColor = '#4C61A0';
+          fillOpacity = 0.22;
+        }
 
-      // Add a GeoJSON source for the label
-      if (!map.current.getSource('park-slope-label')) {
-        map.current.addSource('park-slope-label', {
-          type: 'geojson',
-          data: {
-            type: 'FeatureCollection',
-            features: [
-              {
-                type: 'Feature',
-                geometry: {
-                  type: 'Point',
-                  coordinates: centroid
-                },
-                properties: {
-                  label: '25%'
+        // Add fill layer if it doesn't exist
+        if (!map.current.getLayer(fillLayerId)) {
+          map.current.addLayer({
+            id: fillLayerId,
+            type: 'fill',
+            source: sourceId,
+            paint: {
+              'fill-color': fillColor,
+              'fill-opacity': fillOpacity,
+              'fill-outline-color': 'transparent'
+            }
+          });
+        }
+
+        // Add label source if it doesn't exist
+        if (!map.current.getSource(labelSourceId)) {
+          map.current.addSource(labelSourceId, {
+            type: 'geojson',
+            data: {
+              type: 'FeatureCollection',
+              features: [
+                {
+                  type: 'Feature',
+                  geometry: {
+                    type: 'Point',
+                    coordinates: neighborhood.centroid
+                  },
+                  properties: {
+                    label: neighborhood.label
+                  }
                 }
-              }
-            ]
-          }
+              ]
+            }
+          });
+        }
+
+        // Add label layer if it doesn't exist
+        if (!map.current.getLayer(labelLayerId)) {
+          map.current.addLayer({
+            id: labelLayerId,
+            type: 'symbol',
+            source: labelSourceId,
+            layout: {
+              'text-field': ['get', 'label'],
+              'text-size': [
+                'interpolate', ['linear'], ['zoom'],
+                10, 14,   // At zoom 10, size 14
+                14, 24,   // At zoom 14, size 24
+                18, 40    // At zoom 18, size 40
+              ],
+              'text-anchor': 'center'
+            },
+            paint: {
+              'text-color': '#ffffff',
+              'text-halo-color': '#000000',
+              'text-halo-width': 1
+            }
+          });
+        }
+
+        // Add click event for this neighborhood
+        map.current.on('click', fillLayerId, () => {
+          setSelectedNeighborhood(selectedNeighborhood === neighborhoodKey ? null : neighborhoodKey);
+          setSelected(selectedNeighborhood !== neighborhoodKey);
         });
-      }
 
-      // Add a symbol layer for the label with zoom-dependent text size
-      if (!map.current.getLayer('park-slope-label-layer')) {
-        map.current.addLayer({
-          id: 'park-slope-label-layer',
-          type: 'symbol',
-          source: 'park-slope-label',
-          layout: {
-            'text-field': ['get', 'label'],
-            'text-size': [
-              'interpolate', ['linear'], ['zoom'],
-              10, 14,   // At zoom 10, size 18
-              14, 32,   // At zoom 14, size 32
-              18, 60    // At zoom 18, size 60
-            ],
-            'text-anchor': 'center'
-          },
-          paint: {
-            'text-color': '#ffffff',
-            'text-halo-color': '#000000',
-            'text-halo-width': 2
-          }
+        // Add hover events for this neighborhood
+        map.current.on('mouseenter', fillLayerId, () => {
+          map.current.getCanvas().style.cursor = 'pointer';
         });
-      }
-
-      // Listen for clicks on the fill layer to toggle selection
-      map.current.on('click', 'park-slope-fill', () => {
-        setSelected((prev) => !prev);
-      });
-
-      // Change cursor to pointer on hover
-      map.current.on('mouseenter', 'park-slope-fill', () => {
-        map.current.getCanvas().style.cursor = 'pointer';
-      });
-      map.current.on('mouseleave', 'park-slope-fill', () => {
-        map.current.getCanvas().style.cursor = '';
+        map.current.on('mouseleave', fillLayerId, () => {
+          map.current.getCanvas().style.cursor = '';
+        });
       });
     });
 
@@ -166,25 +182,28 @@ function App() {
 
   // Update border color and width based on selection
   useEffect(() => {
-    if (!map.current) return;
-    if (map.current.getLayer && map.current.getLayer('park-slope-boundary')) {
+    if (!map.current || !selectedNeighborhood) return;
+    
+    const boundaryLayerId = `${selectedNeighborhood}-boundary`;
+    
+    if (map.current.getLayer && map.current.getLayer(boundaryLayerId)) {
       map.current.setPaintProperty(
-        'park-slope-boundary',
+        boundaryLayerId,
         'line-color',
         selected ? '#4CA09C' : '#151515'
       );
       map.current.setPaintProperty(
-        'park-slope-boundary',
+        boundaryLayerId,
         'line-width',
-        selected ? 8 : 3
+        selected ? 8 : 2
       );
       map.current.setPaintProperty(
-        'park-slope-boundary',
+        boundaryLayerId,
         'line-opacity',
-        selected ? 1 : 0.2
+        selected ? 1 : 1
       );
     }
-  }, [selected]);
+  }, [selected, selectedNeighborhood]);
 
   return (
     <div ref={mapContainer} className="map-container" />
